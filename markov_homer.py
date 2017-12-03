@@ -43,7 +43,7 @@ class MarkovChain:
         next_word = self._next(state)
         return state + ' ' + self.babble(amount - 1, next_word)
 
-txt_file = open('cleaned.txt')
+txt_file = open('data/cleaned.txt')
 txt = txt_file.read().replace('\n', ' ')
 
 markov = MarkovChain(2)

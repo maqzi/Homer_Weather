@@ -3,6 +3,7 @@ import datetime
 import json
 import urllib.request
 import time
+import random
 
 def get_api(cfg):
   auth = tweepy.OAuthHandler(cfg['consumer_key'], cfg['consumer_secret'])
@@ -54,45 +55,105 @@ def data_organizer(raw_api_dict):
 
 
 def data_output(data):
-    m_symbol = '\xb0' + 'C'
-    print('---------------------------------------')
-    print('Current weather in: {}, {}:'.format(data['city'], data['country']))
-    print(data['temp'], m_symbol, data['sky'])
-    print('Max: {}, Min: {}'.format(data['temp_max'], data['temp_min']))
-    print('')
-    print('Wind Speed: {}, Degree: {}'.format(data['wind'], data['wind_deg']))
-    print('Humidity: {}'.format(data['humidity']))
-    print('Cloud: {}'.format(data['cloudiness']))
-    print('Pressure: {}'.format(data['pressure']))
-    print('Sunrise at: {}'.format(data['sunrise']))
-    print('Sunset at: {}'.format(data['sunset']))
-    print('')
-    print('Last update from the server: {}'.format(data['dt']))
-    print('---------------------------------------')
+    # m_symbol = '\xb0' + 'C'
+    # print('---------------------------------------')
+    # print('Current weather in: {}, {}:'.format(data['city'], data['country']))
+    # print(data['temp'], m_symbol, data['sky'])
+    # print('Max: {}, Min: {}'.format(data['temp_max'], data['temp_min']))
+    # print('')
+    # print('Wind Speed: {}, Degree: {}'.format(data['wind'], data['wind_deg']))
+    # print('Humidity: {}'.format(data['humidity']))
+    # print('Cloud: {}'.format(data['cloudiness']))
+    # print('Pressure: {}'.format(data['pressure']))
+    # print('Sunrise at: {}'.format(data['sunrise']))
+    # print('Sunset at: {}'.format(data['sunset']))
+    # print('')
+    # print('Last update from the server: {}'.format(data['dt']))
+    # print('---------------------------------------')
     return data
+
+class MarkovChain:
+
+    def __init__(self, n=2):
+        self.n = n
+        self.memory = {}
+
+    def _learn_key(self, key, value):
+        if key not in self.memory:
+            self.memory[key] = []
+
+        self.memory[key].append(value)
+
+    def learn(self, text):
+        tokens = [token.strip('()') for token in text.split(" ")]
+        if self.n==2:
+            ngrams = [(tokens[i], tokens[i+1]) for i in range(0, len(tokens) - 1)]
+        else:
+            # n==3
+            ngrams = [(tokens[i], tokens[i+1], tokens[i+2]) for i in range(0, len(tokens) - 2)]
+        for ngram in ngrams:
+            if self.n==2:
+                self._learn_key(ngram[0], ngram[1])
+            else:
+                self._learn_key((ngram[0], ngram[1]), ngram[2])
+
+    def _next(self, current_state):
+        next_possible = self.memory.get(current_state)
+
+        if not next_possible:
+            if self.n==2:
+                next_possible = self.memory.keys()
+            else:
+                next_possible = [key[0] for key in self.memory.keys()]
+
+        return random.sample(next_possible, 1)[0]
+
+    def babble(self, amount, state=''):
+        if not amount:
+            return state
+
+        next_word = self._next(state)
+        return state + ' ' + self.babble(amount - 1, next_word)
+
+
+def compose_tweet(model, prompt):
+    tweet = model._next(prompt).capitalize()
+    next_word = model._next(tweet)
+    while len(tweet) < 100 or len(tweet + next_word) <= 215:
+        tweet += ' ' + next_word
+        next_word = model._next(next_word)
+        if len(tweet) > 150 and tweet[-1] in ['.', '!', '?']:
+            break
+    return tweet
 
 def main():
   # Twitter keys
   cfg = {
-    "consumer_key"        : "",
-    "consumer_secret"     : "",
-    "access_token"        : "",
-    "access_token_secret" : ""
-    }
+      "consumer_key"        : "",
+      "consumer_secret"     : "",
+      "access_token"        : "",
+       "access_token_secret": ""
+  }
 
   api = get_api(cfg)
   city_id = 4525353 #Springfield USA
+  txt_file = open('Homer_Weather/data/cleaned.txt')
+  txt = txt_file.read().replace('\n', ' ')
+
+  markov = MarkovChain(2)
+  markov.learn(txt)
 
   try:
+
       weather_info = data_output(data_organizer(data_fetch(url_builder(city_id))))
 
-      # if(weather_info['sky'] in ['Rain', 'Extreme', 'Snow','Thunderstorm']):
-          # start with prompt = sth
-      # else:
-          # start with prompt = sth else
+      if(weather_info['sky'] in ['Rain', 'Extreme', 'Snow','Thunderstorm']):
+            prompt = 'Whew!'
+      else:
+            prompt = ''
 
-      # tweet = <using N-Gram Model>
-      # status = api.update_status(status=tweet)
+      tweet = 'Today in Springfield it\'s {} with an average of {} {}. '.format(weather_info['sky'].lower(), round(weather_info['temp']),'\xb0' + 'C')+compose_tweet(markov, prompt)
+      status = api.update_status(status=tweet)
   except IOError:
       print('no internet')
 
